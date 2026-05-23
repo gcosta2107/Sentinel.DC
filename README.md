@@ -114,6 +114,69 @@ The platform also provides immediate local alerts using:
       "ativo": false,
       "estado": "normal",
       "historico": {
+        "19545": {
+          "datetime": "23/05/2026 15:22:44",
+          "pessoas": 6,
+          "temperatura": 31.57191,
+          "tipo": "temp_alta+umid_baixa",
+          "umidade": 38.69299
+        },
+        "38891": {
+          "datetime": "23/05/2026 15:15:26",
+          "pessoas": 6,
+          "temperatura": 29.9417,
+          "tipo": "temp_alta+umid_baixa",
+          "umidade": 39.95184
+        },
+        "42345": {
+          "datetime": "23/05/2026 15:04:54",
+          "pessoas": 8,
+          "temperatura": 27.88248,
+          "tipo": "temp_alta+umid_alta",
+          "umidade": 72.42255
+        },
+        "50255": {
+          "datetime": "23/05/2026 14:52:57",
+          "pessoas": 4,
+          "temperatura": 27.3784,
+          "tipo": "temp_alta+umid_alta",
+          "umidade": 80.56311
+        },
+        "114212": {
+          "datetime": "23/05/2026 15:16:41",
+          "pessoas": 6,
+          "temperatura": 30.1133,
+          "tipo": "temp_alta+umid_baixa",
+          "umidade": 39.82214
+        },
+        "232943": {
+          "datetime": "23/05/2026 15:18:40",
+          "pessoas": 6,
+          "temperatura": 30.4994,
+          "tipo": "temp_alta+umid_baixa",
+          "umidade": 39.07446
+        },
+        "367667": {
+          "datetime": "23/05/2026 15:50:39",
+          "pessoas": 2,
+          "temperatura": 27.18535,
+          "tipo": "temp_alta+umid_alta",
+          "umidade": 71.75116
+        },
+        "430582": {
+          "datetime": "23/05/2026 14:59:18",
+          "pessoas": 8,
+          "temperatura": 27.64653,
+          "tipo": "temp_alta+umid_alta",
+          "umidade": 56.44659
+        },
+        "432662": {
+          "datetime": "23/05/2026 15:51:44",
+          "pessoas": 2,
+          "temperatura": 27.02447,
+          "tipo": "temp_alta+umid_alta",
+          "umidade": 74.36041
+        },
         "694314": {
           "pessoas": 5,
           "temperatura": 28.69758,
@@ -132,15 +195,15 @@ The platform also provides immediate local alerts using:
     "estado": "normal",
     "nivel": "aviso",
     "temp_alarme": 26.55256,
-    "temp_atual": 28.78339,
+    "temp_atual": 28.30076,
     "temp_estado": "quente",
-    "umid_atual": 51.60193,
+    "umid_atual": 45.13983,
     "umid_estado": "ok"
   },
   "ambiente": {
-    "temperatura": 28.78339,
-    "ultima_leitura": "23/05/2026 14:52:35",
-    "umidade": 51.60193
+    "temperatura": 28.30076,
+    "ultima_leitura": "23/05/2026 15:56:02",
+    "umidade": 45.42212
   },
   "button": false,
   "config": {
@@ -154,9 +217,34 @@ The platform also provides immediate local alerts using:
   "led": true,
   "pessoas": {
     "alerta_lotacao": false,
-    "entradas": 22,
+    "entradas": 3,
     "historico": {
       "lotacao": {
+        "13604": {
+          "datetime": "23/05/2026 15:04:25",
+          "maximo": 5,
+          "total": 8
+        },
+        "14156": {
+          "datetime": "23/05/2026 15:22:39",
+          "maximo": 5,
+          "total": 6
+        },
+        "27717": {
+          "datetime": "23/05/2026 15:06:18",
+          "maximo": 5,
+          "total": 6
+        },
+        "29710": {
+          "datetime": "23/05/2026 15:15:17",
+          "maximo": 5,
+          "total": 6
+        },
+        "134274": {
+          "datetime": "23/05/2026 14:54:21",
+          "maximo": 5,
+          "total": 6
+        },
         "141645": {
           "maximo": 5,
           "timestamp": 141,
@@ -165,12 +253,12 @@ The platform also provides immediate local alerts using:
       }
     },
     "maximo": 5,
-    "saidas": 18,
-    "total": 4,
-    "ultimo_gesto": "--/-- --:--:--"
+    "saidas": 0,
+    "total": 3,
+    "ultimo_gesto": "23/05 15:53:15"
   },
   "sistema": {
-    "ultimo_envio": "23/05/2026 14:52:42"
+    "ultimo_envio": "23/05/2026 15:55:58"
   },
   "test": {
     "int": 1
