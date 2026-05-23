@@ -21,7 +21,7 @@
 //   NTP
 // ════════════════════════════════════════════════════════════════
 #define NTP_SERVER   "pool.ntp.org"
-#define GMT_OFFSET   -3 * 3600   // UTC-3 Brasília
+#define GMT_OFFSET   -3 * 3600
 #define DST_OFFSET   0
 
 // ════════════════════════════════════════════════════════════════
@@ -42,15 +42,16 @@
 //   BUZZER
 // ════════════════════════════════════════════════════════════════
 #define USE_BUZZER   true
-#define BUZZER_PIN   25   
-
+#define BUZZER_PIN   25
 
 // ════════════════════════════════════════════════════════════════
 //   INTERVALOS
 // ════════════════════════════════════════════════════════════════
-#define INTERVALO_FIREBASE   5000UL
-#define INTERVALO_SENSOR     3000UL
-#define INTERVALO_TELA       3000UL
+#define INTERVALO_FIREBASE    5000UL
+#define INTERVALO_SENSOR      3000UL
+#define INTERVALO_TELA        3000UL
+#define TEMPO_MODO_MANUAL     8000UL
+#define DEBOUNCE_MS             50UL
 
 // ════════════════════════════════════════════════════════════════
 //   PINOS
@@ -94,35 +95,44 @@ EstadoTemp  g_estadoTemp  = TEMP_OK;
 EstadoUmid  g_estadoUmid  = UMID_OK;
 NivelAlarme g_nivelAlarme = AL_NORMAL;
 
-bool          g_alarmeAtivo      = false;
-bool          g_alarmeLogado     = false;
-bool          g_alertaPessoas    = false;
-bool          g_pessoasLogado    = false;
-bool          g_alarmeCombinado  = false;
-bool          g_combinadoLogado  = false;
-unsigned long g_tInicioAlarme    = 0;
+bool          g_alarmeAtivo     = false;
+bool          g_alarmeLogado    = false;
+bool          g_alertaPessoas   = false;
+bool          g_pessoasLogado   = false;
+bool          g_alarmeCombinado = false;
+bool          g_combinadoLogado = false;
+unsigned long g_tInicioAlarme   = 0;
 
-// Subtipo do alarme combinado — para mensagem e tom distintos
 enum TipoCombinado {
-    COMB_NENHUM    = 0,
-    COMB_ALTO_ALTO,    // temp alta  + umid alta
-    COMB_ALTO_BAIXO,   // temp alta  + umid baixa
-    COMB_BAIXO_ALTO,   // temp baixa + umid alta
-    COMB_BAIXO_BAIXO   // temp baixa + umid baixa
+    COMB_NENHUM = 0,
+    COMB_ALTO_ALTO,
+    COMB_ALTO_BAIXO,
+    COMB_BAIXO_ALTO,
+    COMB_BAIXO_BAIXO
 };
 TipoCombinado g_tipoCombinado = COMB_NENHUM;
 
 enum Tela { TELA_TEMP = 0, TELA_PESSOAS, TELA_STATUS, TELA_COUNT };
 Tela g_tela = TELA_TEMP;
 
+// Temporização
 unsigned long t_sensor   = 0;
 unsigned long t_firebase = 0;
 unsigned long t_tela     = 0;
 unsigned long t_pisca    = 0;
 bool piscaEstado = false;
-bool btnAnterior = HIGH;
 
-// ── Timestamps ───────────────────────────────────────────────────
+// Botão com debounce
+unsigned long t_debounce = 0;
+bool          btnAnterior = HIGH;
+bool          btnLido     = HIGH;
+bool          btnEstavel  = HIGH;
+
+// Modo manual
+bool          g_modoManual = false;
+unsigned long t_modoManual = 0;
+
+// Timestamps
 String g_dtUltimoSensor   = "--/-- --:--:--";
 String g_dtUltimoGesto    = "--/-- --:--:--";
 String g_dtUltimoFirebase = "--/-- --:--:--";
@@ -136,10 +146,8 @@ void registraHistoricoCombinado();
 void verificaPessoas();
 
 // ════════════════════════════════════════════════════════════════
-//   HELPERS — DATA / HORA (NTP)
+//   HELPERS — DATA / HORA
 // ════════════════════════════════════════════════════════════════
-
-// "DD/MM/AAAA HH:MM:SS" — para Firebase e Serial
 String dataHoraAtual() {
     struct tm info;
     if (!getLocalTime(&info)) return "--/--/---- --:--:--";
@@ -148,7 +156,6 @@ String dataHoraAtual() {
     return String(buf);
 }
 
-// "DD/MM HH:MM:SS" — compacto para o display OLED
 String dataHoraResumida() {
     struct tm info;
     if (!getLocalTime(&info)) return "--/-- --:--:--";
@@ -169,7 +176,6 @@ void setRGB(bool r, bool g, bool b) {
 void ledStatus() {
     if (g_alertaPessoas)   { setRGB(true,  true,  true);  return; } // branco
     if (g_alarmeCombinado) { setRGB(true,  false, true);  return; } // magenta
-
     switch (g_estadoTemp) {
         case TEMP_CRITICO: setRGB(true,  false, false); return; // vermelho
         case TEMP_QUENTE:  setRGB(true,  true,  false); return; // amarelo
@@ -195,42 +201,31 @@ void setBarGraph(bool l1, bool l2, bool l3, bool l4) {
 }
 
 void atualizaBarGraph() {
-    // 1 — Temperatura crítica
     if (g_nivelAlarme == AL_CRITICO) {
         if (piscaEstado) setBarGraph(true,  true,  true,  true);
         else             setBarGraph(false, false, false, false);
         return;
     }
-
-    // 2 — Alarme combinado: pisca alternado 1/3 e 2/4
     if (g_alarmeCombinado) {
         if (piscaEstado) setBarGraph(true,  false, true,  false);
         else             setBarGraph(false, true,  false, true);
         return;
     }
-
-    // 3 — Lotação excedida
     if (g_alertaPessoas) {
         if (piscaEstado) setBarGraph(true,  true,  true,  true);
         else             setBarGraph(false, false, false, false);
         return;
     }
-
-    // 4 — Aviso de temperatura ou umidade
     if (g_nivelAlarme == AL_AVISO) {
         if (!piscaEstado) { setBarGraph(false, false, false, false); return; }
-
         bool tempFora = (g_estadoTemp != TEMP_OK);
         bool umidFora = (g_estadoUmid != UMID_OK);
         bool tempAlta = (g_estadoTemp == TEMP_QUENTE);
-
         if      (tempFora && umidFora) setBarGraph(true, true, true,  false);
         else if (tempAlta || umidFora) setBarGraph(true, true, false, false);
         else                           setBarGraph(true, false,false, false);
         return;
     }
-
-    // 5 — Normal: medidor proporcional 1–4 LEDs
     float pct = (g_temp - TEMP_COLD) / (TEMP_WARN - TEMP_COLD);
     pct       = constrain(pct, 0.0f, 1.0f);
     int n     = (int)(pct * 3.99f) + 1;
@@ -250,7 +245,6 @@ void bipa(int freq, int durMs) {
 #endif
 }
 
-// Temperatura crítica: três bipes rápidos + tom longo
 void padraoAlarme() {
     bipa(1000, 100); delay(60);
     bipa(1000, 100); delay(60);
@@ -258,7 +252,6 @@ void padraoAlarme() {
     bipa(800,  500);
 }
 
-// Temp alta + Umid alta: tons alternados ascendentes (risco de condensação)
 void padraoCombinadoAltoAlto() {
     bipa(900,  150); delay(50);
     bipa(1100, 150); delay(50);
@@ -267,7 +260,6 @@ void padraoCombinadoAltoAlto() {
     bipa(1300, 400);
 }
 
-// Temp alta + Umid baixa: dois tons agudos (equipamento ressecando)
 void padraoCombinadoAltoBaixo() {
     bipa(1400, 120); delay(60);
     bipa(1400, 120); delay(60);
@@ -276,7 +268,6 @@ void padraoCombinadoAltoBaixo() {
     bipa(1400, 400);
 }
 
-// Temp baixa + Umid alta: tons graves e lentos (frio e úmido)
 void padraoCombinadoBaixoAlto() {
     bipa(500, 250); delay(100);
     bipa(700, 250); delay(100);
@@ -284,7 +275,6 @@ void padraoCombinadoBaixoAlto() {
     bipa(700, 500);
 }
 
-// Temp baixa + Umid baixa: tons graves curtos (frio e seco)
 void padraoCombinadoBaixoBaixo() {
     bipa(500, 150); delay(60);
     bipa(500, 150); delay(60);
@@ -292,14 +282,12 @@ void padraoCombinadoBaixoBaixo() {
     bipa(400, 500);
 }
 
-// Lotação
-void padraoAlarmelotacao() {
+void padraoAlarmeLotacao() {
     bipa(600, 200); delay(80);
     bipa(600, 200); delay(80);
     bipa(900, 400);
 }
 
-// Despacha o tom correto conforme o tipo combinado
 void soaCombinado(TipoCombinado tipo) {
     switch (tipo) {
         case COMB_ALTO_ALTO:   padraoCombinadoAltoAlto();   break;
@@ -311,7 +299,36 @@ void soaCombinado(TipoCombinado tipo) {
 }
 
 // ════════════════════════════════════════════════════════════════
+//   HELPER — BOTÃO
+//   Centraliza toda a lógica de troca de tela
+// ════════════════════════════════════════════════════════════════
+void clicouBotao(unsigned long agora) {
+    // 1. Avança tela ciclicamente
+    g_tela = (Tela)((g_tela + 1) % TELA_COUNT);
+
+    // 2. Reinicia timer do modo manual a cada clique
+    t_modoManual = agora;
+    g_modoManual = true;
+
+    // 3. Reinicia timer de troca automática
+    t_tela = agora;
+
+    // 4. Feedback sonoro curto no lugar do delay(80) bloqueante
+    //    — não trava o loop, confirma o clique sem atrasar o debounce
+#if USE_BUZZER
+    tone(BUZZER_PIN, 1800, 40);
+#endif
+
+    Serial.printf("[Botao] Tela: %d/%d  manual ativo por mais %lus\n",
+                  (int)g_tela + 1, (int)TELA_COUNT,
+                  TEMPO_MODO_MANUAL / 1000);
+}
+
+
+// ════════════════════════════════════════════════════════════════
 //   HELPERS — DISPLAY OLED
+//   REGRA: nenhuma função de tela chama display.display()
+//          isso é feito UMA única vez no dispatcher
 // ════════════════════════════════════════════════════════════════
 void barraHoriz(int x, int y, int w, int h, float pct) {
     display.drawRect(x, y, w, h, SSD1306_WHITE);
@@ -333,6 +350,16 @@ void badge(int x, int y, const char* txt, bool alerta) {
     display.setTextColor(SSD1306_WHITE);
 }
 
+void desenhaModoManual() {
+    unsigned long restante = (TEMPO_MODO_MANUAL - (millis() - t_modoManual)) / 1000;
+    display.fillRect(104, 0, 24, 8, SSD1306_BLACK);
+    display.drawRect(104, 0, 24, 8, SSD1306_WHITE);
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setCursor(106, 1);
+    display.printf("M%lus", restante);
+}
+
 // ── Tela 0: Temperatura / Umidade ────────────────────────────────
 void oledTelaTemp() {
     const char* bT[] = {"  OK  ", " FRIO ", "QUENTE", " CRIT "};
@@ -347,7 +374,6 @@ void oledTelaTemp() {
     display.drawLine(0,  9, 127,  9, SSD1306_WHITE);
     display.drawLine(63, 0,  63, 63, SSD1306_WHITE);
 
-    // Coluna esquerda
     display.setCursor(2, 12);
     display.printf("Temp: %.1f C", g_temp);
 
@@ -362,7 +388,6 @@ void oledTelaTemp() {
     badge(2, 45, bT[g_estadoTemp], g_estadoTemp != TEMP_OK);
     display.setCursor(2, 56); display.print("ok:18-27C");
 
-    // Coluna direita
     display.setCursor(66, 12);
     display.printf("Umid: %.0f %%", g_umid);
 
@@ -378,8 +403,6 @@ void oledTelaTemp() {
 
     badge(66, 45, bU[g_estadoUmid], g_estadoUmid != UMID_OK);
     display.setCursor(66, 56); display.print("ok:40-55%");
-
-    display.display();
 }
 
 // ── Tela 1: Ocupação ──────────────────────────────────────────────
@@ -415,8 +438,6 @@ void oledTelaPessoas() {
     display.setCursor(0, 54);
     display.printf("Ent:%d  Sai:%d  Max:%d",
                    g_entradas, g_saidas, PESSOAS_MAX);
-
-    display.display();
 }
 
 // ── Tela 2: Status ────────────────────────────────────────────────
@@ -472,8 +493,6 @@ void oledTelaStatus() {
                            sN[g_nivelAlarme], g_total(), PESSOAS_MAX);
         display.setTextColor(SSD1306_WHITE);
     }
-
-    display.display();
 }
 
 // ── Tela Aviso ────────────────────────────────────────────────────
@@ -519,26 +538,23 @@ void oledTelaAviso() {
         display.drawLine(xMn, y-2, xMn, y+8, SSD1306_WHITE);
         display.drawLine(xMx, y-2, xMx, y+8, SSD1306_WHITE);
     }
-
-    display.display();
 }
 
 // ── Tela Alarme Combinado ─────────────────────────────────────────
 void oledAlarmeCombinado() {
-    // Títulos e mensagens de risco para cada combinação
     const char* titulos[] = {
         "",
-        "! TEMP ALTA + UMID ALTA !",   // COMB_ALTO_ALTO
-        "! TEMP ALTA + UMID BAIXA !",  // COMB_ALTO_BAIXO
-        "! TEMP BAIXA + UMID ALTA !",  // COMB_BAIXO_ALTO
-        "! TEMP BAIXA + UMID BAIXA !"  // COMB_BAIXO_BAIXO
+        "! TEMP ALTA + UMID ALTA !",
+        "! TEMP ALTA + UMID BAIXA !",
+        "! TEMP BAIXA + UMID ALTA !",
+        "! TEMP BAIXA + UMID BAIXA !"
     };
     const char* riscos[] = {
         "",
-        "Risco de condensacao!",        // COMB_ALTO_ALTO
-        "Risco de ressecamento!",       // COMB_ALTO_BAIXO
-        "Risco de corrosao!",           // COMB_BAIXO_ALTO
-        "Risco de carga eletrostatica!" // COMB_BAIXO_BAIXO
+        "Risco de condensacao!",
+        "Risco de ressecamento!",
+        "Risco de corrosao!",
+        "Risco de carga eletrostatica!"
     };
 
     display.clearDisplay();
@@ -554,7 +570,6 @@ void oledAlarmeCombinado() {
     display.setTextColor(SSD1306_WHITE);
     display.drawLine(0, 11, 127, 11, SSD1306_WHITE);
 
-    // Temperatura
     display.setCursor(0, 14);
     display.printf("Temp : %.1f C", g_temp);
     display.setCursor(80, 14);
@@ -565,7 +580,6 @@ void oledAlarmeCombinado() {
     int xW = 1 + (int)((TEMP_WARN - TEMP_COLD) / (TEMP_CRIT - TEMP_COLD) * 126);
     display.drawLine(xW, 22, xW, 32, SSD1306_WHITE);
 
-    // Umidade
     display.setCursor(0, 35);
     display.printf("Umid : %.0f %%", g_umid);
     display.setCursor(80, 35);
@@ -580,8 +594,6 @@ void oledAlarmeCombinado() {
 
     display.setCursor(0, 56);
     display.print(riscos[g_tipoCombinado]);
-
-    display.display();
 }
 
 // ── Tela Crítica ──────────────────────────────────────────────────
@@ -618,21 +630,40 @@ void oledAlarmeCritico() {
     display.setCursor(0, 55);
     unsigned long seg = (millis() - g_tInicioAlarme) / 1000;
     display.printf("Ha: %lus  Lim: %.0fC", seg, TEMP_CRIT);
-
-    display.display();
 }
 
-// ── Dispatcher ────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════
+//   DISPATCHER — único ponto que chama display.display()
+// ════════════════════════════════════════════════════════════════
 void atualizaDisplay() {
-    if (g_nivelAlarme == AL_CRITICO) { oledAlarmeCritico();   return; }
-    if (g_alarmeCombinado)           { oledAlarmeCombinado(); return; }
-    if (g_nivelAlarme == AL_AVISO)   { oledTelaAviso();       return; }
-    switch (g_tela) {
-        case TELA_TEMP:    oledTelaTemp();    break;
-        case TELA_PESSOAS: oledTelaPessoas(); break;
-        case TELA_STATUS:  oledTelaStatus();  break;
-        default: break;
+
+    // Modo manual: usuário navega livremente
+    if (g_modoManual) {
+        switch (g_tela) {
+            case TELA_TEMP:    oledTelaTemp();    break;
+            case TELA_PESSOAS: oledTelaPessoas(); break;
+            case TELA_STATUS:  oledTelaStatus();  break;
+            default:           oledTelaTemp();    break;
+        }
+        desenhaModoManual(); // sobrepõe indicador "M Xs"
+        display.display();   // ← único display.display()
+        return;
     }
+
+    // Modo normal: prioridade de alarmes
+    if      (g_nivelAlarme == AL_CRITICO) oledAlarmeCritico();
+    else if (g_alarmeCombinado)           oledAlarmeCombinado();
+    else if (g_nivelAlarme == AL_AVISO)   oledTelaAviso();
+    else {
+        switch (g_tela) {
+            case TELA_TEMP:    oledTelaTemp();    break;
+            case TELA_PESSOAS: oledTelaPessoas(); break;
+            case TELA_STATUS:  oledTelaStatus();  break;
+            default:           oledTelaTemp();    break;
+        }
+    }
+
+    display.display(); // ← único display.display()
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -645,34 +676,35 @@ void enviaFirebase() {
     const char* sU[] = {"ok", "seco", "umido"};
     const char* sN[] = {"normal", "aviso", "critico"};
     const char* sC[] = {
-        "nenhum", "temp_alta+umid_alta",
+        "nenhum",
+        "temp_alta+umid_alta",
         "temp_alta+umid_baixa",
         "temp_baixa+umid_alta",
         "temp_baixa+umid_baixa"
     };
 
-    Firebase.setFloat (fbdo, "/ambiente/temperatura",          g_temp);
-    Firebase.setFloat (fbdo, "/ambiente/umidade",              g_umid);
-    Firebase.setString(fbdo, "/ambiente/ultima_leitura",       dataHoraAtual());
+    Firebase.setFloat (fbdo, "/ambiente/temperatura",      g_temp);
+    Firebase.setFloat (fbdo, "/ambiente/umidade",          g_umid);
+    Firebase.setString(fbdo, "/ambiente/ultima_leitura",   dataHoraAtual());
 
-    Firebase.setInt   (fbdo, "/pessoas/entradas",              g_entradas);
-    Firebase.setInt   (fbdo, "/pessoas/saidas",                g_saidas);
-    Firebase.setInt   (fbdo, "/pessoas/total",                 g_total());
-    Firebase.setInt   (fbdo, "/pessoas/maximo",                PESSOAS_MAX);
-    Firebase.setBool  (fbdo, "/pessoas/alerta_lotacao",        g_alertaPessoas);
-    Firebase.setString(fbdo, "/pessoas/ultimo_gesto",          g_dtUltimoGesto);
+    Firebase.setInt   (fbdo, "/pessoas/entradas",          g_entradas);
+    Firebase.setInt   (fbdo, "/pessoas/saidas",            g_saidas);
+    Firebase.setInt   (fbdo, "/pessoas/total",             g_total());
+    Firebase.setInt   (fbdo, "/pessoas/maximo",            PESSOAS_MAX);
+    Firebase.setBool  (fbdo, "/pessoas/alerta_lotacao",    g_alertaPessoas);
+    Firebase.setString(fbdo, "/pessoas/ultimo_gesto",      g_dtUltimoGesto);
 
-    Firebase.setString(fbdo, "/alarme/nivel",                  sN[g_nivelAlarme]);
-    Firebase.setString(fbdo, "/alarme/temp_estado",            sT[g_estadoTemp]);
-    Firebase.setString(fbdo, "/alarme/umid_estado",            sU[g_estadoUmid]);
-    Firebase.setBool  (fbdo, "/alarme/ativo",                  g_alarmeAtivo);
-    Firebase.setFloat (fbdo, "/alarme/temp_atual",             g_temp);
-    Firebase.setFloat (fbdo, "/alarme/umid_atual",             g_umid);
-    Firebase.setBool  (fbdo, "/alarme/combinado/ativo",        g_alarmeCombinado);
-    Firebase.setString(fbdo, "/alarme/combinado/tipo",         sC[g_tipoCombinado]);
+    Firebase.setString(fbdo, "/alarme/nivel",              sN[g_nivelAlarme]);
+    Firebase.setString(fbdo, "/alarme/temp_estado",        sT[g_estadoTemp]);
+    Firebase.setString(fbdo, "/alarme/umid_estado",        sU[g_estadoUmid]);
+    Firebase.setBool  (fbdo, "/alarme/ativo",              g_alarmeAtivo);
+    Firebase.setFloat (fbdo, "/alarme/temp_atual",         g_temp);
+    Firebase.setFloat (fbdo, "/alarme/umid_atual",         g_umid);
+    Firebase.setBool  (fbdo, "/alarme/combinado/ativo",    g_alarmeCombinado);
+    Firebase.setString(fbdo, "/alarme/combinado/tipo",     sC[g_tipoCombinado]);
 
     g_dtUltimoFirebase = dataHoraResumida();
-    Firebase.setString(fbdo, "/sistema/ultimo_envio",          dataHoraAtual());
+    Firebase.setString(fbdo, "/sistema/ultimo_envio",      dataHoraAtual());
 
     Serial.printf("[Firebase] T:%.1f[%s] U:%.0f[%s] P:%d/%d Comb:%s -> %s @ %s\n",
                   g_temp, sT[g_estadoTemp],
@@ -713,7 +745,8 @@ void registraHistoricoPessoas() {
 void registraHistoricoCombinado() {
     if (!Firebase.ready() || g_combinadoLogado) return;
     const char* sC[] = {
-        "nenhum", "temp_alta+umid_alta",
+        "nenhum",
+        "temp_alta+umid_alta",
         "temp_alta+umid_baixa",
         "temp_baixa+umid_alta",
         "temp_baixa+umid_baixa"
@@ -738,12 +771,11 @@ void registraHistoricoCombinado() {
 // ════════════════════════════════════════════════════════════════
 void verificaPessoas() {
     bool lotado = (g_total() > PESSOAS_MAX);
-
     if (lotado && !g_alertaPessoas) {
         g_alertaPessoas = true;
         g_pessoasLogado = false;
         Serial.printf("[LOTADO] %d/%d pessoas!\n", g_total(), PESSOAS_MAX);
-        padraoAlarmelotacao();
+        padraoAlarmeLotacao();
         registraHistoricoPessoas();
         g_tela = TELA_PESSOAS;
     } else if (!lotado && g_alertaPessoas) {
@@ -785,7 +817,7 @@ void atualizaAlarme() {
     g_estadoUmid  = novoUmid;
     g_nivelAlarme = novoNivel;
 
-    // ── Crítico de temperatura ────────────────────────────────────
+    // Crítico de temperatura
     bool deveAlarmar = (g_nivelAlarme == AL_CRITICO);
     if (deveAlarmar && !g_alarmeAtivo) {
         g_alarmeAtivo   = true;
@@ -799,18 +831,11 @@ void atualizaAlarme() {
         Serial.println("[Alarme] Temperatura normalizada.");
     }
 
-    // ── Alarme combinado: QUALQUER combinação fora dos dois lados ─
-    // Cobre os 4 quadrantes:
-    //   temp alta  + umid alta   → condensação
-    //   temp alta  + umid baixa  → ressecamento
-    //   temp baixa + umid alta   → corrosão
-    //   temp baixa + umid baixa  → eletrostática
-    bool tempFora = (g_estadoTemp == TEMP_QUENTE  || g_estadoTemp == TEMP_CRITICO
-                  || g_estadoTemp == TEMP_FRIO);
-    bool umidFora = (g_estadoUmid == UMID_UMIDO   || g_estadoUmid == UMID_SECO);
+    // Alarme combinado
+    bool tempFora      = (g_estadoTemp != TEMP_OK);
+    bool umidFora      = (g_estadoUmid != UMID_OK);
     bool deveCombinado = tempFora && umidFora;
 
-    // Determina o subtipo
     TipoCombinado novoTipo = COMB_NENHUM;
     if (deveCombinado) {
         bool tempAlta = (g_estadoTemp == TEMP_QUENTE || g_estadoTemp == TEMP_CRITICO);
@@ -822,9 +847,8 @@ void atualizaAlarme() {
     }
 
     if (deveCombinado && (!g_alarmeCombinado || novoTipo != g_tipoCombinado)) {
-        // Dispara se for novo ou se o tipo mudou
         g_alarmeCombinado = true;
-        g_combinadoLogado = (novoTipo == g_tipoCombinado); // reusa log se mesmo tipo
+        g_combinadoLogado = (novoTipo == g_tipoCombinado);
         g_tipoCombinado   = novoTipo;
         const char* sC[] = {
             "", "TEMP_ALTA+UMID_ALTA",
@@ -911,6 +935,7 @@ void setup() {
 
 #if USE_BUZZER
     pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, LOW);
 #endif
 
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
@@ -939,21 +964,21 @@ void setup() {
     else
         Serial.println("APDS-9960 OK");
 
-    // Wi-Fi
     display.clearDisplay();
     display.setCursor(0, 24); display.println("Conectando Wi-Fi...");
     display.display();
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     Serial.print("Wi-Fi");
     int t = 0;
-    while (WiFi.status() != WL_CONNECTED && t++ < 30) { delay(500); Serial.print("."); }
+    while (WiFi.status() != WL_CONNECTED && t++ < 30) {
+        delay(500); Serial.print(".");
+    }
     if (WiFi.status() == WL_CONNECTED) {
         Serial.print("\nWi-Fi OK: "); Serial.println(WiFi.localIP());
     } else {
         Serial.println("\nWi-Fi FALHOU — modo offline");
     }
 
-    // NTP
     if (WiFi.status() == WL_CONNECTED) {
         configTime(GMT_OFFSET, DST_OFFSET, NTP_SERVER);
         Serial.print("NTP sync");
@@ -968,7 +993,6 @@ void setup() {
             Serial.println("\nNTP FALHOU — sem data/hora");
     }
 
-    // Firebase
     config.database_url               = DATABASE_URL;
     config.signer.tokens.legacy_token = DATABASE_SECRET;
     Firebase.reconnectNetwork(true);
@@ -978,21 +1002,26 @@ void setup() {
     if (Firebase.getInt(fbdo, "/pessoas/entradas")) g_entradas = fbdo.intData();
     if (Firebase.getInt(fbdo, "/pessoas/saidas"))   g_saidas   = fbdo.intData();
 
-    Firebase.setBool  (fbdo, "/alarme/ativo",               false);
-    Firebase.setBool  (fbdo, "/alarme/combinado/ativo",      false);
-    Firebase.setString(fbdo, "/alarme/combinado/tipo",       "nenhum");
-    Firebase.setBool  (fbdo, "/pessoas/alerta_lotacao",      false);
-    Firebase.setFloat (fbdo, "/config/temp_cold",            TEMP_COLD);
-    Firebase.setFloat (fbdo, "/config/temp_warn",            TEMP_WARN);
-    Firebase.setFloat (fbdo, "/config/temp_crit",            TEMP_CRIT);
-    Firebase.setFloat (fbdo, "/config/umid_min",             UMID_MIN);
-    Firebase.setFloat (fbdo, "/config/umid_max",             UMID_MAX);
-    Firebase.setInt   (fbdo, "/config/pessoas_max",          PESSOAS_MAX);
+    Firebase.setBool  (fbdo, "/alarme/ativo",              false);
+    Firebase.setBool  (fbdo, "/alarme/combinado/ativo",    false);
+    Firebase.setString(fbdo, "/alarme/combinado/tipo",     "nenhum");
+    Firebase.setBool  (fbdo, "/pessoas/alerta_lotacao",    false);
+    Firebase.setFloat (fbdo, "/config/temp_cold",          TEMP_COLD);
+    Firebase.setFloat (fbdo, "/config/temp_warn",          TEMP_WARN);
+    Firebase.setFloat (fbdo, "/config/temp_crit",          TEMP_CRIT);
+    Firebase.setFloat (fbdo, "/config/umid_min",           UMID_MIN);
+    Firebase.setFloat (fbdo, "/config/umid_max",           UMID_MAX);
+    Firebase.setInt   (fbdo, "/config/pessoas_max",        PESSOAS_MAX);
 
     verificaPessoas();
 
     Serial.println("Sistema pronto!");
     setRGB(false, true, false); delay(800); setRGB(false, false, false);
+
+    // Teste de som no boot
+    bipa(1000, 150); delay(80);
+    bipa(1500, 150); delay(80);
+    bipa(2000, 300);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1001,38 +1030,73 @@ void setup() {
 void loop() {
     unsigned long agora = millis();
 
-    // 1. Gestos
+    // ── 1. Gestos ─────────────────────────────────────────────────
     processaGestos();
 
-    // 2. Botão: troca de tela
-    bool btnAtual = digitalRead(BTN_PIN);
-    if (btnAnterior == HIGH && btnAtual == LOW) {
-        g_tela = (Tela)((g_tela + 1) % TELA_COUNT);
-        t_tela = agora;
-        Serial.printf("[Display] Tela: %d\n", (int)g_tela);
-    }
-    btnAnterior = btnAtual;
+    // ── 2. Botão com debounce ─────────────────────────────────────
+    btnLido = digitalRead(BTN_PIN);
 
-    // 3. Troca automática (só em modo totalmente normal)
-    if (g_nivelAlarme == AL_NORMAL && !g_alertaPessoas
-        && !g_alarmeCombinado && agora - t_tela >= INTERVALO_TELA) {
-        g_tela = (Tela)((g_tela + 1) % TELA_COUNT);
-        t_tela = agora;
+    if (btnLido != btnAnterior) {
+        t_debounce  = agora;
+        btnAnterior = btnLido;
     }
 
-    // 4. Leitura de sensores
+    if (agora - t_debounce >= DEBOUNCE_MS) {
+        if (btnLido != btnEstavel) {
+            btnEstavel = btnLido;
+            if (btnEstavel == LOW) {
+                clicouBotao(agora);   // sem delay interno — seguro chamar aqui
+            }
+        }
+    }
+
+    // Expira modo manual — usa agora atualizado, sem risco de falso positivo
+    if (g_modoManual && agora - t_modoManual >= TEMPO_MODO_MANUAL) {
+        g_modoManual = false;
+        Serial.println("[Display] Modo manual expirado — retorna ao aviso");
+    }
+
+
+    // Só aceita após DEBOUNCE_MS estável
+    if (agora - t_debounce >= DEBOUNCE_MS) {
+        if (btnLido != btnEstavel) {
+            btnEstavel = btnLido;
+
+            // Borda de descida = botão pressionado → troca tela
+            if (btnEstavel == LOW) {
+                clicouBotao(agora);
+            }
+            // Borda de subida = botão solto → nenhuma ação
+        }
+    }
+
+    // Expira modo manual se nenhum clique em TEMPO_MODO_MANUAL ms
+    if (g_modoManual && agora - t_modoManual >= TEMPO_MODO_MANUAL) {
+        g_modoManual = false;
+        Serial.println("[Display] Modo manual expirado — retorna ao aviso");
+    }
+
+    // ── 3. Troca automática ───────────────────────────────────────
+    if (!g_modoManual && g_nivelAlarme == AL_NORMAL
+        && !g_alertaPessoas && !g_alarmeCombinado
+        && agora - t_tela >= INTERVALO_TELA) {
+        g_tela = (Tela)((g_tela + 1) % TELA_COUNT);
+        t_tela = agora;
+    }
+
+    // ── 4. Leitura de sensores ────────────────────────────────────
     if (agora - t_sensor >= INTERVALO_SENSOR) {
         t_sensor = agora;
         leSensores();
     }
 
-    // 5. Envio Firebase
+    // ── 5. Envio Firebase ─────────────────────────────────────────
     if (agora - t_firebase >= INTERVALO_FIREBASE) {
         t_firebase = agora;
         enviaFirebase();
     }
 
-    // 6. LED RGB + Bar Graph (non-blocking)
+    // ── 6. LED RGB + Bar Graph (non-blocking) ─────────────────────
     unsigned long intervPisca = (g_nivelAlarme == AL_CRITICO) ? 200UL : 400UL;
     if (agora - t_pisca >= intervPisca) {
         t_pisca     = agora;
@@ -1058,10 +1122,10 @@ void loop() {
         }
     }
 
-    // 7. Bar Graph
+    // ── 7. Bar Graph ──────────────────────────────────────────────
     atualizaBarGraph();
 
-    // 8. Display
+    // ── 8. Display ────────────────────────────────────────────────
     atualizaDisplay();
 
     delay(50);
