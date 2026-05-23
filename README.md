@@ -108,25 +108,72 @@ The platform also provides immediate local alerts using:
 
 ```json
 {
-  "ambiente": {
-    "temperatura": 24.5,
-    "umidade": 55.2
-  },
-  "pessoas": {
-    "entradas": 10,
-    "saidas": 7,
-    "total": 3
-  },
   "alarme": {
-    "ativo": true,
-    "estado": "CRITICO",
-    "temp_alarme": 36.7,
+    "ativo": false,
+    "combinado": {
+      "ativo": false,
+      "estado": "normal",
+      "historico": {
+        "694314": {
+          "pessoas": 5,
+          "temperatura": 28.69758,
+          "timestamp": 694,
+          "umidade": 76.59583
+        },
+        "734103": {
+          "pessoas": 5,
+          "temperatura": 29.77009,
+          "timestamp": 734,
+          "umidade": 71.13318
+        }
+      },
+      "tipo": "nenhum"
+    },
+    "estado": "normal",
+    "nivel": "aviso",
+    "temp_alarme": 26.55256,
+    "temp_atual": 28.78339,
+    "temp_estado": "quente",
+    "umid_atual": 51.60193,
+    "umid_estado": "ok"
+  },
+  "ambiente": {
+    "temperatura": 28.78339,
+    "ultima_leitura": "23/05/2026 14:52:35",
+    "umidade": 51.60193
+  },
+  "button": false,
+  "config": {
+    "pessoas_max": 5,
+    "temp_cold": 18,
+    "temp_crit": 35,
+    "temp_warn": 27,
+    "umid_max": 55,
+    "umid_min": 40
+  },
+  "led": true,
+  "pessoas": {
+    "alerta_lotacao": false,
+    "entradas": 22,
     "historico": {
-      "1716230000": {
-        "temperatura": 36.7,
-        "timestamp": 1716230000
+      "lotacao": {
+        "141645": {
+          "maximo": 5,
+          "timestamp": 141,
+          "total": 6
+        }
       }
-    }
+    },
+    "maximo": 5,
+    "saidas": 18,
+    "total": 4,
+    "ultimo_gesto": "--/-- --:--:--"
+  },
+  "sistema": {
+    "ultimo_envio": "23/05/2026 14:52:42"
+  },
+  "test": {
+    "int": 1
   }
 }
 ```
